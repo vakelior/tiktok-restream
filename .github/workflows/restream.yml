@@ -1,11 +1,7 @@
 name: Restream m3u8 to RTMP
 
 on:
-  schedule:
-    # كل ساعة — باش يبقى شغال بحد أقصى (GitHub كيوقف الـ job عند 6 ساعات عالأكثر)
-    - cron: '0 * * * *'
   workflow_dispatch:
-    # باش تشغلو يدوياً من تبويب Actions
 
 permissions:
   contents: read
@@ -20,18 +16,28 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
 
-      - name: Run restream loop (with auto-restart)
+      - name: Validate secrets
+        run: |
+          if [ -z "$M3U8_URL" ] || [ -z "$RTMP_URL" ]; then
+            echo "ERROR: M3U8_URL or RTMP_URL secret is empty."
+            exit 1
+          fi
+          echo "Secrets OK (lengths): M3U8=${#M3U8_URL} RTMP=${#RTMP_URL}"
+        env:
+          M3U8_URL: ${{ secrets.M3U8_URL }}
+          RTMP_URL: ${{ secrets.RTMP_URL }}
+
+      - name: Run restream loop
         env:
           M3U8_URL: ${{ secrets.M3U8_URL }}
           RTMP_URL: ${{ secrets.RTMP_URL }}
         run: |
-          # حلقة لا نهائية مع auto-restart — كتوقف غير مني يوصل timeout
           while true; do
-            echo "▶️  بداية إعادة البث..."
+            echo ">>> Restream starting..."
             ffmpeg -hide_banner -loglevel info \
               -re -i "$M3U8_URL" \
               -c copy \
               -f flv "$RTMP_URL"
-            echo "⚠️  البث توقف (exit=$?). إعادة بعد 10 ثواني..."
+            echo ">>> Stream stopped (exit=$?). Restarting in 10s..."
             sleep 10
           done
