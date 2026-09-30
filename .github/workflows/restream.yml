@@ -30,10 +30,9 @@ jobs:
 
       - name: Download video
         run: |
+          VIDEO_URL="https://app.zaro.ai/api/files/download?fid=7679bd1b-d6d8-4015-92b5-613eebf2aac9&exp=1790823735&sig=lBa3S9K00P3Scg52OZLKOg"
           curl -L -o video.mp4 "$VIDEO_URL"
           ls -lh video.mp4
-        env:
-          VIDEO_URL: ${{ secrets.VIDEO_URL }}
 
       - name: Run restream loop (no disconnect)
         env:
