@@ -31,25 +31,28 @@ jobs:
         env:
           RTMP_URL: ${{ secrets.RTMP_URL }}
 
+      - name: Download video
+        run: |
+          yt-dlp --no-warnings -f "299+140/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best" \
+            --merge-output-format mp4 \
+            -o "video.mp4" \
+            "https://youtu.be/tyHkrDqxyXQ"
+          ls -lh video.mp4
+
       - name: Run restream loop (no disconnect)
         env:
           RTMP_URL: ${{ secrets.RTMP_URL }}
         run: |
           set +e
-          YT_URL="https://youtu.be/tyHkrDqxyXQ"
           attempts=0
           while true; do
             attempts=$((attempts + 1))
-            echo ">>> Attempt $attempts: fetching video from YouTube and restreaming..."
-
-            yt-dlp --no-warnings -f "299+140/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best" \
-              "$YT_URL" -o - 2>/dev/null | \
+            echo ">>> Attempt $attempts: restreaming video.mp4 to RTMP..."
             ffmpeg -hide_banner -loglevel warning \
-              -re -i pipe:0 \
-              -c:v copy -c:a aac -b:a 128k \
               -stream_loop -1 \
+              -re -i video.mp4 \
+              -c:v copy -c:a aac -b:a 128k \
               -f flv "$RTMP_URL"
-
             code=$?
             echo ">>> FFmpeg exited with code=$code. Restarting in 3s..."
             sleep 3
