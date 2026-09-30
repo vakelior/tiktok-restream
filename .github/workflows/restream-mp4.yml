@@ -1,0 +1,55 @@
+name: Restream MP4 to RTMP (1080p60)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Direct MP4 video URL (from SnapScooper or any CDN)'
+        required: true
+        type: string
+      loop:
+        description: 'Loop the video continuously? (max 6h GitHub limit)'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  repository_dispatch:
+    types: [restream]
+
+jobs:
+  restream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Download video
+        run: |
+          VIDEO_URL="${{ github.event.inputs.video_url }}"
+          if [ -z "$VIDEO_URL" ]; then
+            VIDEO_URL="${{ github.event.client_payload.video_url }}"
+          fi
+          echo "Downloading: $VIDEO_URL"
+          curl -sL -A "Mozilla/5.0" "$VIDEO_URL" -o input.mp4
+          ls -la input.mp4
+          du -h input.mp4
+
+      - name: Stream to RTMP
+        env:
+          RTMP_URL: ${{ secrets.RTMP_URL }}
+        run: |
+          LOOP="${{ github.event.inputs.loop }}"
+          if [ -z "$LOOP" ]; then LOOP="true"; fi
+          if [ "$LOOP" = "true" ]; then
+            echo "Looping video until 6h limit or cancelled"
+            ffmpeg -re -stream_loop -1 -i input.mp4 -c:v copy -c:a copy -f flv "$RTMP_URL"
+          else
+            echo "Single pass streaming"
+            ffmpeg -re -i input.mp4 -c:v copy -c:a copy -f flv "$RTMP_URL"
+          fi
