@@ -1,7 +1,14 @@
-name: Restream video to RTMP
+name: Universal Video Restream
 
 on:
   workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Video URL to restream (YouTube or direct MP4 link)'
+        required: false
+        default: 'https://youtu.be/tyHkrDqxyXQ'
+  repository_dispatch:
+    types: [restream]
   schedule:
     - cron: '0 * * * *'
 
@@ -13,42 +20,69 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
-      - name: Install FFmpeg
+      - name: Install FFmpeg + yt-dlp
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          yt-dlp --version
 
       - name: Validate secrets
         run: |
           if [ -z "$RTMP_URL" ]; then
-            echo "ERROR: RTMP_URL secret is empty."
+            echo "ERROR: RTMP_URL secret is empty"
             exit 1
           fi
-          echo "Secrets OK. RTMP length=${#RTMP_URL}"
+          echo "Secrets OK"
         env:
           RTMP_URL: ${{ secrets.RTMP_URL }}
 
-      - name: Download video
+      - name: Resolve video URL
+        id: resolve
         run: |
-          VIDEO_URL="https://app.zaro.ai/api/files/download?fid=7679bd1b-d6d8-4015-92b5-613eebf2aac9&exp=1790823735&sig=lBa3S9K00P3Scg52OZLKOg"
-          curl -L -o video.mp4 "$VIDEO_URL"
-          ls -lh video.mp4
+          VIDEO_URL="${{ github.event.inputs.video_url || github.event.client_payload.video_url }}"
+          if [ -z "$VIDEO_URL" ]; then
+            VIDEO_URL="https://youtu.be/tyHkrDqxyXQ"
+          fi
+          echo "video_url=$VIDEO_URL" >> "$GITHUB_OUTPUT"
+          echo "Resolved URL: $VIDEO_URL"
 
-      - name: Run restream loop (no disconnect)
+      - name: Download + convert, then restream loop
         env:
           RTMP_URL: ${{ secrets.RTMP_URL }}
+          VIDEO_URL: ${{ steps.resolve.outputs.video_url }}
         run: |
           set +e
+
+          echo ">>> Downloading source..."
+          if echo "$VIDEO_URL" | grep -qE '\.(mp4|mkv|webm|ts|mov)$'; then
+            curl -L -o video.mp4 "$VIDEO_URL"
+          else
+            yt-dlp --no-warnings \
+              --extractor-args "youtube:player_client=android,web_embedded,web_safari" \
+              -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/18/best" \
+              --merge-output-format mp4 \
+              -o "video.mp4" \
+              "$VIDEO_URL"
+          fi
+
+          if [ ! -s video.mp4 ]; then
+            echo "ERROR: download failed"
+            exit 1
+          fi
+          ls -lh video.mp4
+
           attempts=0
           while true; do
             attempts=$((attempts + 1))
-            echo ">>> Attempt $attempts: restreaming video.mp4 to RTMP..."
+            echo ">>> Attempt $attempts: pushing to RTMP..."
             ffmpeg -hide_banner -loglevel warning \
               -stream_loop -1 \
               -re -i video.mp4 \
               -c:v copy -c:a aac -b:a 128k \
               -f flv "$RTMP_URL"
             code=$?
-            echo ">>> FFmpeg exited with code=$code. Restarting in 3s..."
+            echo ">>> FFmpeg exited code=$code. Restarting in 3s..."
             sleep 3
           done
