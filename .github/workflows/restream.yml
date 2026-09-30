@@ -20,21 +20,21 @@ jobs:
 
       - name: Validate secrets
         run: |
-          if [ -z "$M3U8_URL" ] || [ -z "$RTMP_URL" ]; then
-            echo "ERROR: M3U8_URL or RTMP_URL secret is empty."
+          if [ -z "$RTMP_URL" ]; then
+            echo "ERROR: RTMP_URL secret is empty."
             exit 1
           fi
-          echo "Secrets OK (lengths): M3U8=${#M3U8_URL} RTMP=${#RTMP_URL}"
+          echo "Secrets OK. RTMP length=${#RTMP_URL}"
         env:
-          M3U8_URL: ${{ secrets.M3U8_URL }}
           RTMP_URL: ${{ secrets.RTMP_URL }}
 
       - name: Run restream loop (no disconnect)
         env:
-          M3U8_URL: ${{ secrets.M3U8_URL }}
           RTMP_URL: ${{ secrets.RTMP_URL }}
         run: |
           set +e
+          VIDEO_URL="https://ireplay.tv/test/rate_5_28.m3u8"
+          AUDIO_URL="https://ireplay.tv/test/rate_0_28_live.m3u8"
           attempts=0
           while true; do
             attempts=$((attempts + 1))
@@ -44,9 +44,10 @@ jobs:
               -reconnect_streamed 1 \
               -reconnect_delay_max 10 \
               -rw_timeout 20000000 \
-              -stream_loop -1 \
-              -re -i "$M3U8_URL" \
-              -c copy \
+              -re -i "$VIDEO_URL" \
+              -re -i "$AUDIO_URL" \
+              -map 0:v:0 -map 1:a:0 \
+              -c:v copy -c:a aac -b:a 128k \
               -f flv "$RTMP_URL"
             code=$?
             echo ">>> FFmpeg exited with code=$code. Restarting in 3s..."
