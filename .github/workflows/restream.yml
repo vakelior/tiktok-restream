@@ -2,6 +2,8 @@ name: Restream m3u8 to RTMP
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
 
 permissions:
   contents: read
@@ -32,12 +34,17 @@ jobs:
           M3U8_URL: ${{ secrets.M3U8_URL }}
           RTMP_URL: ${{ secrets.RTMP_URL }}
         run: |
-          while true; do
-            echo ">>> Restream starting..."
-            ffmpeg -hide_banner -loglevel info \
+          set +e
+          attempts=0
+          max_attempts=100
+          while [ $attempts -lt $max_attempts ]; do
+            attempts=$((attempts + 1))
+            echo ">>> Attempt $attempts: starting FFmpeg..."
+            ffmpeg -hide_banner -loglevel warning \
               -re -i "$M3U8_URL" \
               -c copy \
               -f flv "$RTMP_URL"
-            echo ">>> Stream stopped (exit=$?). Restarting in 10s..."
-            sleep 10
+            code=$?
+            echo ">>> FFmpeg exited with code=$code. Restarting in 5s..."
+            sleep 5
           done
