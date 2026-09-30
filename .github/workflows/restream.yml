@@ -1,4 +1,4 @@
-name: Restream YouTube to RTMP
+name: Restream video to RTMP
 
 on:
   workflow_dispatch:
@@ -13,13 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
-      - name: Install FFmpeg + yt-dlp
+      - name: Install FFmpeg
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-          sudo chmod a+rx /usr/local/bin/yt-dlp
-          yt-dlp --version
 
       - name: Validate secrets
         run: |
@@ -33,11 +30,10 @@ jobs:
 
       - name: Download video
         run: |
-          yt-dlp --no-warnings -f "299+140/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best" \
-            --merge-output-format mp4 \
-            -o "video.mp4" \
-            "https://youtu.be/tyHkrDqxyXQ"
+          curl -L -o video.mp4 "$VIDEO_URL"
           ls -lh video.mp4
+        env:
+          VIDEO_URL: ${{ secrets.VIDEO_URL }}
 
       - name: Run restream loop (no disconnect)
         env:
