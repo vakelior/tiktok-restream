@@ -1,4 +1,4 @@
-name: Restream m3u8 to RTMP
+name: Restream YouTube to RTMP
 
 on:
   workflow_dispatch:
@@ -13,10 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
-      - name: Install FFmpeg
+      - name: Install FFmpeg + yt-dlp
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          yt-dlp --version
 
       - name: Validate secrets
         run: |
@@ -33,20 +36,20 @@ jobs:
           RTMP_URL: ${{ secrets.RTMP_URL }}
         run: |
           set +e
-          STREAM_URL="https://test-streams.mux.dev/x36xhzz/url_8/193039199_mp4_h264_aac_fhd_7.m3u8"
+          YT_URL="https://youtu.be/tyHkrDqxyXQ"
           attempts=0
           while true; do
             attempts=$((attempts + 1))
-            echo ">>> Attempt $attempts: starting FFmpeg (1080p 60fps muxed audio+video)..."
+            echo ">>> Attempt $attempts: fetching video from YouTube and restreaming..."
+
+            yt-dlp --no-warnings -f "299+140/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best" \
+              "$YT_URL" -o - 2>/dev/null | \
             ffmpeg -hide_banner -loglevel warning \
-              -reconnect 1 \
-              -reconnect_streamed 1 \
-              -reconnect_delay_max 10 \
-              -rw_timeout 20000000 \
+              -re -i pipe:0 \
+              -c:v copy -c:a aac -b:a 128k \
               -stream_loop -1 \
-              -re -i "$STREAM_URL" \
-              -c copy \
               -f flv "$RTMP_URL"
+
             code=$?
             echo ">>> FFmpeg exited with code=$code. Restarting in 3s..."
             sleep 3
