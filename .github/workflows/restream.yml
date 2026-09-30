@@ -48,7 +48,18 @@ jobs:
           echo "video_url=$VIDEO_URL" >> "$GITHUB_OUTPUT"
           echo "Resolved URL: $VIDEO_URL"
 
-      - name: Download + convert, then restream loop
+      - name: Write cookies (if provided)
+        run: |
+          if [ -n "$COOKIES" ]; then
+            printf '%s' "$COOKIES" > cookies.txt
+            echo "cookies.txt written ($(wc -l < cookies.txt) lines)"
+          else
+            echo "No cookies provided - will use android client (360p)"
+          fi
+        env:
+          COOKIES: ${{ secrets.COOKIES }}
+
+      - name: Download best available, then restream loop
         env:
           RTMP_URL: ${{ secrets.RTMP_URL }}
           VIDEO_URL: ${{ steps.resolve.outputs.video_url }}
@@ -58,10 +69,19 @@ jobs:
           echo ">>> Downloading source..."
           if echo "$VIDEO_URL" | grep -qE '\.(mp4|mkv|webm|ts|mov)$'; then
             curl -L -o video.mp4 "$VIDEO_URL"
-          else
+          elif [ -f cookies.txt ]; then
+            echo "Using cookies -> full quality (1080p60)"
             yt-dlp --no-warnings \
-              --extractor-args "youtube:player_client=android,web_embedded,web_safari" \
-              -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/18/best" \
+              --cookies cookies.txt \
+              -f "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]/best" \
+              --merge-output-format mp4 \
+              -o "video.mp4" \
+              "$VIDEO_URL"
+          else
+            echo "No cookies -> android client (360p fallback)"
+            yt-dlp --no-warnings \
+              --extractor-args "youtube:player_client=android" \
+              -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/18/best" \
               --merge-output-format mp4 \
               -o "video.mp4" \
               "$VIDEO_URL"
@@ -72,6 +92,7 @@ jobs:
             exit 1
           fi
           ls -lh video.mp4
+          ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -of csv=p=0 video.mp4
 
           attempts=0
           while true; do
