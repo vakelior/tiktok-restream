@@ -11,7 +11,7 @@ permissions:
 jobs:
   restream:
     runs-on: ubuntu-latest
-    timeout-minutes: 59
+    timeout-minutes: 350
     steps:
       - name: Install FFmpeg
         run: |
@@ -29,22 +29,26 @@ jobs:
           M3U8_URL: ${{ secrets.M3U8_URL }}
           RTMP_URL: ${{ secrets.RTMP_URL }}
 
-      - name: Run restream loop
+      - name: Run restream loop (no disconnect)
         env:
           M3U8_URL: ${{ secrets.M3U8_URL }}
           RTMP_URL: ${{ secrets.RTMP_URL }}
         run: |
           set +e
           attempts=0
-          max_attempts=100
-          while [ $attempts -lt $max_attempts ]; do
+          while true; do
             attempts=$((attempts + 1))
             echo ">>> Attempt $attempts: starting FFmpeg..."
             ffmpeg -hide_banner -loglevel warning \
+              -reconnect 1 \
+              -reconnect_streamed 1 \
+              -reconnect_delay_max 10 \
+              -rw_timeout 20000000 \
+              -stream_loop -1 \
               -re -i "$M3U8_URL" \
               -c copy \
               -f flv "$RTMP_URL"
             code=$?
-            echo ">>> FFmpeg exited with code=$code. Restarting in 5s..."
-            sleep 5
+            echo ">>> FFmpeg exited with code=$code. Restarting in 3s..."
+            sleep 3
           done
