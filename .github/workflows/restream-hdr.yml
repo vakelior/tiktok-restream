@@ -1,0 +1,69 @@
+name: Restream HDR 4K60 to RTMP
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Direct MP4 video URL (HDR HEVC 10-bit)'
+        required: true
+        type: string
+        default: 'https://lf-tk-sg.ibytedtos.com/obj/tcs-client-sg/resources/hevc_4K60P_bilibili_pq_1.mp4'
+      loop:
+        description: 'Loop the video continuously (max 6h GitHub limit)'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  restream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Download video
+        run: |
+          VIDEO_URL="${{ github.event.inputs.video_url }}"
+          if [ -z "$VIDEO_URL" ]; then
+            VIDEO_URL="${{ github.event.client_payload.video_url }}"
+          fi
+          echo "Downloading: $VIDEO_URL"
+          curl -sL -A "Mozilla/5.0" "$VIDEO_URL" -o input.mp4
+          ls -la input.mp4
+          ffprobe -v error -show_entries stream=codec_name,width,height,pix_fmt,color_transfer -of default=noprint_wrappers=1 input.mp4 | head -20
+
+      - name: Convert HDR to SDR (tone-map)
+        run: |
+          # HDR10 (bt2020/smpte2084) -> SDR (bt709) + downscale 4K -> 1080p60
+          ffmpeg -y -loglevel warning \
+            -i input.mp4 \
+            -vf "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p" \
+            -s 1920x1080 -r 60 \
+            -c:v libx264 -preset veryfast -b:v 8000k -maxrate 9000k -bufsize 12000k -pix_fmt yuv420p -profile:v high \
+            -c:a aac -b:a 192k -ar 48000 -ac 2 \
+            -movflags +faststart \
+            output.mp4
+          echo "--- Output ---"
+          ls -la output.mp4
+          ffprobe -v error -show_entries stream=codec_name,width,height,pix_fmt,avg_frame_rate -of default=noprint_wrappers=1 output.mp4 | head -10
+
+      - name: Stream to RTMP
+        env:
+          RTMP_URL: ${{ secrets.RTMP_URL }}
+        run: |
+          LOOP="${{ github.event.inputs.loop }}"
+          if [ -z "$LOOP" ]; then LOOP="true"; fi
+          if [ "$LOOP" = "true" ]; then
+            echo "Looping video until 6h limit or cancelled"
+            ffmpeg -re -stream_loop -1 -i output.mp4 -c:v copy -c:a copy -f flv "$RTMP_URL"
+          else
+            echo "Single pass streaming"
+            ffmpeg -re -i output.mp4 -c:v copy -c:a copy -f flv "$RTMP_URL"
+          fi
